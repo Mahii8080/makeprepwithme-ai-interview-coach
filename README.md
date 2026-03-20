@@ -1,25 +1,34 @@
-<<<<<<< HEAD
 <div align="center">
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# MakePrepWithMe: AI Interview Coach
 
-This contains everything you need to run your app locally.
+This repository contains the full source code for MakePrepWithMe, an AI-powered interview and exam preparation platform.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1J224uUrw3V6WtS1wBqS15omYwTlZJAqy
+## Features
+- **AI Mentors**: Interactive SVG-based avatars with lip-sync.
+- **Voice Interaction**: Speech-to-text and text-to-speech for realistic interviews.
+- **Gemini AI**: Powered by Google's Gemini models for question generation and evaluation.
+- **Advanced Mode**: Webcam-based proctoring and non-verbal feedback.
+- **Personalized Learning**: Track progress and performance across various subjects.
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
-
+### Frontend
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Set your `VITE_GEMINI_API_KEY` in `.env.local`.
+3. Start the development server:
    `npm run dev`
-=======
-# makeprepwithme-ai-interview-coach
-an ai
->>>>>>> c02c814575e52d8e0bafa56915e5b2634ab439f2
+
+### Backend
+1. Go to the `backend` directory.
+2. Install dependencies:
+   `npm install`
+3. Set your `GEMINI_API_KEY` and `DATABASE_URL` in `.env`.
+4. Run Prisma migrations or generate the client:
+   `npx prisma generate`
+5. Start the backend:
+   `npm run dev`
+

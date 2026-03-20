@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ResumeData, Feedback } from '../types';
 import { parseResumeText, generateResumeBasedQuestion, provideFeedbackOnAnswer } from '../services/geminiService';
+import { Avatar, AvatarState } from './Avatar';
 import { MicrophoneIcon } from './icons/MicrophoneIcon';
 import { StopIcon } from './icons/StopIcon';
 import { SendIcon } from './icons/SendIcon';
@@ -32,8 +33,45 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
   const [questionIndex, setQuestionIndex] = useState(0);
   const [sessionAnswers, setSessionAnswers] = useState<Array<{ question: string; answer: string; feedback: Feedback }>>([]);
 
+  const [avatarState, setAvatarState] = useState<AvatarState>('idle');
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+  const synthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // Helper for speech synthesis with lip sync
+  const speak = (text: string) => {
+    if (!window.speechSynthesis) return;
+
+    // Stop any current speech
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    synthesisRef.current = utterance;
+
+    utterance.onstart = () => {
+      setAvatarState('speaking');
+      setIsSpeaking(true);
+    };
+
+    utterance.onend = () => {
+      setAvatarState('idle');
+      setIsSpeaking(false);
+    };
+
+    // Lip sync effect (randomly switch between mouth shapes)
+    const mouthInterval = setInterval(() => {
+      if (window.speechSynthesis.speaking) {
+        const mouthShapes: AvatarState[] = ['speaking_o', 'speaking_e', 'speaking_m'];
+        setAvatarState(mouthShapes[Math.floor(Math.random() * mouthShapes.length)]);
+      } else {
+        clearInterval(mouthInterval);
+      }
+    }, 150);
+
+    window.speechSynthesis.speak(utterance);
+  };
 
   // Initialize speech recognition
   useEffect(() => {
@@ -72,7 +110,7 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
       try {
         const text = e.target?.result as string;
         setResumeText(text);
-        
+
         // Parse resume
         setLoading(true);
         const parsed = await parseResumeText(text);
@@ -88,7 +126,7 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
 
   const startInterview = async () => {
     if (!resumeData) return;
-    
+
     try {
       setLoading(true);
       // Generate first question
@@ -99,6 +137,7 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
       setFeedback(null);
       setQuestionIndex(0);
       setLoading(false);
+      speak(question);
     } catch (err) {
       setError('Failed to generate question. Please try again.');
       setLoading(false);
@@ -128,6 +167,19 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
         resumeData
       );
       setFeedback(answerFeedback);
+
+      // Provide immediate verbal feedback
+      if (answerFeedback.score >= 8) {
+        setAvatarState('happy');
+        speak(`Great answer! ${answerFeedback.feedback}`);
+      } else if (answerFeedback.score >= 5) {
+        setAvatarState('encouraging');
+        speak(`Good points. ${answerFeedback.feedback}`);
+      } else {
+        setAvatarState('serious');
+        speak(`I see. ${answerFeedback.feedback}`);
+      }
+
       setSessionAnswers([
         ...sessionAnswers,
         {
@@ -153,6 +205,7 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
       setUserAnswer('');
       setFeedback(null);
       setLoading(false);
+      speak(newQuestion);
     } catch (err) {
       setError('Failed to generate next question.');
       setLoading(false);
@@ -251,7 +304,7 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
               {resumeData.skills.length > 0 && (
-                <div className="bg-gray-700 rounded-lg p-4">
+                <div className="bg-gray-700 rounded-lg p-5">
                   <h3 className="text-xl font-bold mb-4 text-blue-400">💡 Skills Found</h3>
                   <div className="flex flex-wrap gap-2">
                     {resumeData.skills.slice(0, 8).map((skill, idx) => (
@@ -267,18 +320,50 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
               )}
 
               {resumeData.projects.length > 0 && (
-                <div className="bg-gray-700 rounded-lg p-4">
+                <div className="bg-gray-700 rounded-lg p-5">
                   <h3 className="text-xl font-bold mb-4 text-purple-400">🚀 Projects Found</h3>
                   <ul className="space-y-2">
                     {resumeData.projects.slice(0, 3).map((project, idx) => (
                       <li key={idx} className="text-gray-300 text-sm">
-                        • {project.substring(0, 50)}...
+                        • {project}
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
             </div>
+
+            {/* AI Suggestions Section */}
+            {resumeData.suggestions && (
+              <div className="mb-8 p-6 bg-blue-900/20 border border-blue-500/30 rounded-xl">
+                <h3 className="text-2xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-purple-400">
+                  ✨ Interviewer's Recommendations
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-green-400 mb-2 uppercase tracking-wider">Add These Skills</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {resumeData.suggestions.toAdd.map((s, i) => (
+                        <span key={i} className="text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded">+{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-red-400 mb-2 uppercase tracking-wider">Remove/Update</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {resumeData.suggestions.toRemove.map((s, i) => (
+                        <span key={i} className="text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded">-{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-gray-400 text-sm italic border-t border-gray-700 pt-3">
+                  <span className="font-bold text-gray-300">Why?</span> {resumeData.suggestions.justification}
+                </p>
+              </div>
+            )}
 
             <button
               onClick={startInterview}
@@ -309,11 +394,26 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
         </div>
 
         {/* Question Section */}
-        <div className="bg-gray-800 rounded-xl p-8 shadow-2xl mb-6">
-          <div className="mb-4">
-            <span className="text-sm text-gray-400">Question {questionIndex + 1}</span>
+        <div className="flex flex-col md:flex-row gap-6 mb-6">
+          {/* Avatar Side */}
+          <div className="md:w-1/3 flex flex-col items-center justify-center bg-gray-800 rounded-xl p-6 shadow-xl border border-gray-700">
+            <Avatar state={avatarState} sizeClassName="w-48 h-48" />
+            <div className="mt-4 px-4 py-2 bg-gray-700 rounded-full text-xs font-bold text-blue-300 animate-pulse">
+              {avatarState.toUpperCase().replace('_', ' ')}
+            </div>
           </div>
-          <h3 className="text-2xl font-bold text-white mb-6">{currentQuestion}</h3>
+
+          {/* Question / Text Side */}
+          <div className="md:w-2/3 bg-gray-800 rounded-xl p-8 shadow-2xl flex flex-col justify-center">
+            <div className="mb-4">
+              <span className="text-sm text-gray-400">Question {questionIndex + 1}</span>
+            </div>
+            <h3 className="text-2xl font-bold text-white leading-tight">{currentQuestion}</h3>
+          </div>
+        </div>
+
+        {/* Answer Input Section */}
+        <div className="bg-gray-800 rounded-xl p-8 shadow-2xl mb-6 border border-gray-700">
 
           {/* Answer Input */}
           <textarea
@@ -331,7 +431,7 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
                 onClick={stopListening}
                 className="flex items-center gap-2 px-6 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition"
               >
-                <StopIcon size={20} />
+                <StopIcon className="h-5 w-5" />
                 Stop Listening
               </button>
             ) : (
@@ -339,7 +439,7 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
                 onClick={startListening}
                 className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
               >
-                <MicrophoneIcon size={20} />
+                <MicrophoneIcon className="h-5 w-5" />
                 Start Listening
               </button>
             )}
@@ -349,7 +449,7 @@ const ResumeScreen: React.FC<ResumeScreenProps> = ({ onBack }) => {
               disabled={!userAnswer.trim() || loading}
               className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-lg transition"
             >
-              <SendIcon size={20} />
+              <SendIcon className="h-5 w-5" />
               Submit Answer
             </button>
           </div>

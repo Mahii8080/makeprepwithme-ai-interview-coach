@@ -116,7 +116,7 @@ const getAi = () => {
     return ai;
 };
 
-const model = 'gemini-2.5-flash';
+const model = 'gemini-1.5-flash';
 
 const questionSchema = {
     type: Type.OBJECT,
@@ -441,12 +441,12 @@ const getFallbackQuestion = (subject: Subject | string, difficulty: Difficulty, 
     console.log('getFallbackQuestion called with:', { subject, difficulty, previousQuestionsCount: previousQuestions.length });
     const subjectStr = typeof subject === 'string' ? subject.toLowerCase() : String(subject).toLowerCase();
     const difficultyKey = difficulty as 'Beginner' | 'Intermediate' | 'Advanced';
-    
+
     console.log('Looking for fallback questions:', { subject, subjectStr, difficulty: difficultyKey });
-    
+
     let questions = fallbackQuestions[subjectStr]?.[difficultyKey];
     console.log('Direct lookup result:', { questions: questions ? questions.length : 'undefined', subjectStr, difficultyKey });
-    
+
     // If no questions for this subject, try to find a suitable fallback
     if (!questions || questions.length === 0) {
         console.log('No direct questions found, trying fallbacks...');
@@ -487,18 +487,18 @@ const getFallbackQuestion = (subject: Subject | string, difficulty: Difficulty, 
             console.log('Using default fallback:', questions ? questions.length : 'undefined');
         }
     }
-    
+
     if (questions && questions.length > 0) {
         // Get questions that haven't been asked yet
         const unusedQuestions = questions.filter(q => !previousQuestions.includes(q));
-        const selectedQuestion = unusedQuestions.length > 0 
+        const selectedQuestion = unusedQuestions.length > 0
             ? unusedQuestions[Math.floor(Math.random() * unusedQuestions.length)]
             : questions[Math.floor(Math.random() * questions.length)];
-        
+
         console.log('Returning fallback question:', selectedQuestion);
         return selectedQuestion;
     }
-    
+
     // Ultimate fallback
     return "So, what's your experience with this? Tell me about what you've worked on.";
 };
@@ -508,7 +508,7 @@ const generateQuestionViaGemini = async (subject: Subject | string, difficulty: 
     try {
         const prompt = getQuestionGenerationPrompt(subject, difficulty, previousQuestions);
         console.log('Generated prompt for Gemini');
-        
+
         const response = await getAi().models.generateContent({
             model,
             contents: prompt,
@@ -523,8 +523,19 @@ const generateQuestionViaGemini = async (subject: Subject | string, difficulty: 
 
         const jsonText = (response.text || '').trim();
         console.log('Gemini raw response:', jsonText.substring(0, 200));
+
+        let parsed: any;
+        try {
+            parsed = JSON.parse(jsonText);
+        } catch (e) {
+            const match = jsonText.match(/\{[\s\S]*\}/);
+            if (match) {
+                parsed = JSON.parse(match[0]);
+            } else {
+                throw new Error('Gemini returned an unparseable response.');
+            }
+        }
         
-        const parsed = JSON.parse(jsonText);
         const question = typeof parsed?.question === 'string' ? parsed.question.trim() : '';
         if (!question) {
             throw new Error('Gemini returned an empty question.');
@@ -681,21 +692,24 @@ export const evaluateAnswer = async (question: string, answer: string, subject: 
         const withVisualAnalysis = difficulty === 'Advanced' && !!imageB64Data;
         const schema = withVisualAnalysis ? visualFeedbackSchema : baseFeedbackSchema;
         const prompt = getEvaluationPrompt(question, answer, subject, difficulty, withVisualAnalysis);
-        
-        let requestContents: string | { parts: any[] };
+
+        let requestContents: any;
 
         if (withVisualAnalysis && imageB64Data) {
-            requestContents = {
-                parts: [
-                    { text: prompt },
-                    {
-                        inlineData: {
-                            mimeType: 'image/jpeg',
-                            data: imageB64Data.split(',')[1], // remove dataURL prefix
-                        },
-                    }
-                ]
-            };
+            requestContents = [
+                {
+                    role: "user",
+                    parts: [
+                        { text: prompt },
+                        {
+                            inlineData: {
+                                mimeType: 'image/jpeg',
+                                data: imageB64Data.split(',')[1], // remove dataURL prefix
+                            },
+                        }
+                    ]
+                }
+            ];
         } else {
             requestContents = prompt;
         }
@@ -708,9 +722,21 @@ export const evaluateAnswer = async (question: string, answer: string, subject: 
                 responseSchema: schema,
             }
         });
+
+        const jsonText = (response.text || '').trim();
+        let parsed: any;
+        try {
+            parsed = JSON.parse(jsonText);
+        } catch (e) {
+            const match = jsonText.match(/\{[\s\S]*\}/);
+            if (match) {
+                parsed = JSON.parse(match[0]);
+            } else {
+                throw new Error("Could not parse JSON from Gemini feedback");
+            }
+        }
         
-        const jsonText = response.text.trim();
-        return JSON.parse(jsonText) as Feedback;
+        return parsed as Feedback;
 
     } catch (error) {
         console.error("Error evaluating answer:", error);
@@ -746,9 +772,29 @@ const resumeParsingSchema = {
             type: Type.ARRAY,
             items: { type: Type.STRING },
             description: "List of educational qualifications mentioned in the resume"
+        },
+        suggestions: {
+            type: Type.OBJECT,
+            properties: {
+                toAdd: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: "Skills the candidate should consider adding based on their goals/projects"
+                },
+                toRemove: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: "Outdated or irrelevant skills/buzzwords they should consider removing"
+                },
+                justification: {
+                    type: Type.STRING,
+                    description: "A brief, professional explanation for these suggestions"
+                }
+            },
+            required: ["toAdd", "toRemove", "justification"]
         }
     },
-    required: ["skills", "projects", "experience", "education"]
+    required: ["skills", "projects", "experience", "education", "suggestions"]
 };
 
 export const parseResumeText = async (resumeText: string): Promise<ResumeData> => {
@@ -765,6 +811,10 @@ export const parseResumeText = async (resumeText: string): Promise<ResumeData> =
 - projects: Array of projects with brief descriptions
 - experience: Array of work experience/job roles
 - education: Array of educational qualifications
+- suggestions: An object with:
+    - toAdd: Skills to add to improve the resume
+    - toRemove: Skills to remove or update
+    - justification: Why these changes matter
 
 Resume content:
 ${resumeText}
@@ -788,7 +838,12 @@ Return ONLY valid JSON with the exact structure specified.`
             skills: [],
             projects: [],
             experience: [],
-            education: []
+            education: [],
+            suggestions: {
+                toAdd: [],
+                toRemove: [],
+                justification: "Failed to generate suggestions."
+            }
         };
     }
 };

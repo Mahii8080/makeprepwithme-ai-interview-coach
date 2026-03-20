@@ -53,7 +53,7 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
   const handleEndSessionClick = () => {
     if (sessionScores.current.length > 0) {
       const averageScore = sessionScores.current.reduce((a, b) => a + b, 0) / sessionScores.current.length;
-      updateProfileOnSessionEnd(subject, averageScore);
+      updateProfileOnSessionEnd(subject as Subject, averageScore);
     }
     // Cancel any ongoing speech
     window.speechSynthesis.cancel();
@@ -85,84 +85,82 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
       const speakText = () => {
         const utterance = new SpeechSynthesisUtterance(text);
 
-        // Smooth voice settings
-        utterance.rate = 0.95; // Clearer pace (0.1-10, default 1)
-        utterance.pitch = 1.0; // Natural pitch (0.1-2, default 1)
-        utterance.volume = 1.0; // Full volume (0-1, default 1)
-        utterance.lang = 'en-US'; // English language
+        // Optimizing for "Slow and Clear" human-like speech
+        utterance.rate = 0.88; // Slightly slower for better articulation
+        utterance.pitch = 1.02; // Very slight pitch lift for a friendlier tone
+        utterance.volume = 1.0;
+        utterance.lang = 'en-US';
 
-        // Try to use a clear English voice
         const voices = window.speechSynthesis.getVoices();
         if (voices.length > 0) {
           const englishVoices = voices.filter(v => /^en(-|_)?/i.test(v.lang));
+          // Prioritizing the most "Premium" sounding system voices
           const preferredNames = [
             'Google US English',
-            'Google UK English Female',
-            'Google UK English Male',
             'Microsoft Aria',
             'Microsoft Jenny',
-            'Microsoft Zira',
-            'Microsoft David',
             'Samantha',
-            'Alex'
+            'Apple Victoria'
           ];
 
           const preferredVoice =
             englishVoices.find(v => preferredNames.some(name => v.name.includes(name))) ||
-            englishVoices.find(v => /English/i.test(v.name)) ||
-            englishVoices[0] ||
-            voices[0];
+            englishVoices.find(v => v.name.includes('Female')) ||
+            englishVoices[0];
 
           if (preferredVoice) {
             utterance.voice = preferredVoice;
-            if (preferredVoice.lang) {
-              utterance.lang = preferredVoice.lang;
-            }
           }
         }
 
-        utterance.onstart = () => setAvatarState('speaking');
+        let animationFrame: number;
+        let lastToggleTime = 0;
 
-        // Dynamically change mouth shape during speech for a lip-sync effect
-        utterance.onboundary = (event) => {
-          if (event.name === 'word') {
-               mouthShapeIndex.current = (mouthShapeIndex.current + 1) % speakingAvatarStates.length;
-               const nextShape = speakingAvatarStates[mouthShapeIndex.current];
-               setAvatarState(nextShape);
+        // Dynamic lip-sync chatter logic
+        const animateMouth = (timestamp: number) => {
+          if (!lastToggleTime) lastToggleTime = timestamp;
+
+          // Move mouth every 120ms to simulate syllables/phonemes
+          if (timestamp - lastToggleTime > 120) {
+            const shapes: AvatarState[] = ['speaking', 'speaking_o', 'speaking_e', 'speaking_m'];
+            const randomShape = shapes[Math.floor(Math.random() * shapes.length)];
+            setAvatarState(randomShape);
+            lastToggleTime = timestamp;
           }
+          animationFrame = requestAnimationFrame(animateMouth);
+        };
+
+        utterance.onstart = () => {
+          animationFrame = requestAnimationFrame(animateMouth);
         };
 
         utterance.onend = () => {
+          cancelAnimationFrame(animationFrame);
           setAvatarState('idle');
           resolve();
         };
+
         utterance.onerror = (error) => {
           console.error('Speech synthesis error:', error);
+          cancelAnimationFrame(animationFrame);
           setAvatarState('idle');
           resolve();
         };
+
         window.speechSynthesis.speak(utterance);
       };
 
-      // If voices are not loaded yet, wait for them
       if (window.speechSynthesis.getVoices().length === 0) {
         window.speechSynthesis.onvoiceschanged = () => {
-          window.speechSynthesis.onvoiceschanged = null; // Remove listener
+          window.speechSynthesis.onvoiceschanged = null;
           speakText();
         };
-        // Fallback timeout in case onvoiceschanged doesn't fire
-        setTimeout(() => {
-          if (window.speechSynthesis.onvoiceschanged) {
-            window.speechSynthesis.onvoiceschanged = null;
-            speakText();
-          }
-        }, 1000);
       } else {
         speakText();
       }
     });
   }, []);
-  
+
   const startNewTurn = useCallback(async () => {
     console.log('🔴 startNewTurn CALLED');
     setShowNextQuestionButton(false);
@@ -172,24 +170,24 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
       console.log('About to call generateQuestion with:', { subject, difficulty, prevQuestions: previousQuestionsRef.current.length });
       const question = await generateQuestion(subject, difficulty, previousQuestionsRef.current);
       console.log('Question generated:', question);
-      
+
       if (!question || question.trim().length === 0) {
         console.error('No question returned or question is empty');
         setIsLoading(false);
         setAvatarState('idle');
         return;
       }
-      
+
       // Track this question to avoid repetition in future calls
       previousQuestionsRef.current.push(question);
-      
+
       console.log('Setting message with question:', question);
       setMessages(prev => {
-        const newMessages = [...prev, { role: 'model', text: question }];
+        const newMessages: ChatMessage[] = [...prev, { role: 'model', text: question }];
         console.log('Messages updated, total:', newMessages.length);
         return newMessages;
       });
-      
+
       setIsLoading(false);
       console.log('About to speak question');
       try {
@@ -210,15 +208,15 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
 
   const captureFrame = (): string | null => {
     if (videoRef.current && canvasRef.current && videoRef.current.readyState >= 2) { // Ensure video data is available
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            return canvas.toDataURL('image/jpeg', 0.8); // 80% quality
-        }
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', 0.8); // 80% quality
+      }
     }
     return null;
   };
@@ -230,47 +228,47 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
     setUserInput('');
     setIsLoading(true);
     setAvatarState('thinking');
-    
+
     const lastQuestion = [...messages].reverse().find(m => m.role === 'model')?.text;
     if (!lastQuestion) {
-        console.error("Could not find the last question.");
-        setIsLoading(false);
-        return;
+      console.error("Could not find the last question.");
+      setIsLoading(false);
+      return;
     }
-    
+
     const userMessage: ChatMessage = { role: 'user', text: currentInput };
     setMessages(prev => [...prev, userMessage]);
-    
+
     const imageB64Data = difficulty === 'Advanced' ? captureFrame() : null;
-    const feedback: Feedback = await evaluateAnswer(lastQuestion, currentInput, subject, difficulty, imageB64Data);
-    
+    const feedback: Feedback = await evaluateAnswer(lastQuestion, currentInput, subject as Subject, difficulty, imageB64Data);
+
     if (!feedback.error) {
-        sessionScores.current.push(feedback.score);
+      sessionScores.current.push(feedback.score);
     }
 
     // Set avatar reaction based on score
     if (feedback.error) {
-        setAvatarState('confused');
+      setAvatarState('confused');
     } else if (feedback.score >= 8) {
-        setAvatarState('happy');
+      setAvatarState('happy');
     } else if (feedback.score >= 5) {
-        setAvatarState('encouraging');
+      setAvatarState('encouraging');
     } else {
-        setAvatarState('serious');
+      setAvatarState('serious');
     }
 
     // Brief pause to show the reaction before speaking
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     const feedbackMessage: ChatMessage = {
-        role: 'system',
-        text: 'Here is your feedback:',
-        feedback: feedback
+      role: 'system',
+      text: 'Here is your feedback:',
+      feedback: feedback
     };
     setMessages(prev => [...prev, feedbackMessage]);
-    
+
     await speak(feedback.feedback + (feedback.nonVerbalFeedback ? ` Now, regarding your on-camera presence... ${feedback.nonVerbalFeedback}` : ''));
-    
+
     setIsLoading(false);
     setAvatarState('idle');
     setShowNextQuestionButton(true);
@@ -278,7 +276,7 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
 
   useEffect(() => {
     console.log('🔵 useEffect initialization hook running, hasInitializedRef.current:', hasInitializedRef.current);
-    
+
     if (hasInitializedRef.current) {
       console.log('🔵 Already initialized, skipping');
       return;
@@ -295,8 +293,8 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
     setMessages([initialMessage]);
 
     return () => {
-        console.log('🔵 useEffect cleanup');
-        window.speechSynthesis.cancel();
+      console.log('🔵 useEffect cleanup');
+      window.speechSynthesis.cancel();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -340,10 +338,10 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
           .map((result) => result.transcript)
           .join('');
         setUserInput(transcript);
-        
+
         const lastResult = event.results[event.results.length - 1];
         if (lastResult.isFinal) {
-            handleSubmit(transcript);
+          handleSubmit(transcript);
         }
       };
       recognitionRef.current = recognition;
@@ -398,7 +396,7 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
           {/* Left: Avatar and state */}
           <div className="flex-1 flex items-center justify-center">
             <div className="max-w-lg w-full flex flex-col items-center">
-              <Avatar state={avatarState} sizeClassName="w-40 h-40 md:w-56 md:h-56" />
+              <Avatar state={avatarState} sizeClassName="w-72 h-72 md:w-[450px] md:h-[450px]" />
               <p className="mt-4 text-gray-300 text-center">
                 {avatarState.charAt(0).toUpperCase() + avatarState.slice(1).replace(/_./g, c => ' ' + c[1].toUpperCase())}...
               </p>
@@ -435,9 +433,9 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
           )}
 
           <div className="text-center text-white text-lg sm:text-xl md:text-2xl font-medium mb-4 h-24 p-2 flex items-center justify-center">
-            {isLoading ? <span className="animate-pulse">...</span> : 
-             isListening ? <span className="text-gray-400 italic">{userInput || "Listening..."}</span> :
-             showNextQuestionButton ? 'Review your feedback.' : ' '
+            {isLoading ? <span className="animate-pulse">...</span> :
+              isListening ? <span className="text-gray-400 italic">{userInput || "Listening..."}</span> :
+                showNextQuestionButton ? 'Review your feedback.' : ' '
             }
           </div>
 
@@ -453,14 +451,14 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
           {/* Controls */}
           <div className="flex items-center justify-center">
             <button onClick={toggleListen} disabled={isInteractionDisabled || showNextQuestionButton} className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center transition-all transform hover:scale-110 ${isListening ? 'bg-red-500' : 'bg-blue-600 hover:bg-blue-500'} disabled:bg-gray-600 disabled:cursor-not-allowed`}>
-              {isListening ? <StopIcon className="w-8 h-8 sm:w-10 sm:h-10 text-white" /> : <MicrophoneIcon className="w-8 h-8 sm:w-10 sm:h-10 text-white"/>}
+              {isListening ? <StopIcon className="w-8 h-8 sm:w-10 sm:h-10 text-white" /> : <MicrophoneIcon className="w-8 h-8 sm:w-10 sm:h-10 text-white" />}
             </button>
           </div>
           <p className="text-gray-500 mt-2 text-sm h-5">
             {showNextQuestionButton ? 'Click "Next Question" to continue' : isListening ? '' : 'Press the button to speak'}
           </p>
         </div>
-        
+
         {/* Feedback Modal */}
         {feedbackToShow && showNextQuestionButton && (
           <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center z-30 animate-fade-in-up p-4">
@@ -480,18 +478,17 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
       </div>
     );
   }
-  
+
   return (
     <div className="flex flex-col h-screen p-4 bg-gray-900 relative">
       <header className="flex justify-between items-center mb-4">
         <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-white">{subject}</h1>
-            <span className={`text-sm font-semibold px-2 py-1 rounded-md ${
-                difficulty === 'Beginner' ? 'bg-green-600' :
-                difficulty === 'Intermediate' ? 'bg-yellow-600' : 'bg-red-600'
+          <h1 className="text-xl sm:text-2xl font-bold text-white">{subject}</h1>
+          <span className={`text-sm font-semibold px-2 py-1 rounded-md ${difficulty === 'Beginner' ? 'bg-green-600' :
+            difficulty === 'Intermediate' ? 'bg-yellow-600' : 'bg-red-600'
             }`}>{difficulty}</span>
         </div>
-        <button 
+        <button
           onClick={handleEndSessionClick}
           className="bg-red-600 hover:bg-red-500 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
           End Session
@@ -500,9 +497,9 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
       <div className="flex-1 flex flex-col gap-4 overflow-hidden">
         <div className="flex-1 flex flex-col md:flex-row gap-4 overflow-hidden">
           <div className="w-full md:w-1/3 flex flex-col items-center justify-center bg-gray-800 rounded-lg p-4 space-y-4">
-            <Avatar state={avatarState} sizeClassName="w-36 h-36 md:w-48 md:h-48" />
+            <Avatar state={avatarState} sizeClassName="w-56 h-56 md:w-80 md:h-80" />
             <p className="mt-4 text-gray-400 text-center animate-pulse h-6">
-                {avatarState.charAt(0).toUpperCase() + avatarState.slice(1).replace(/_./g, c => ' ' + c[1].toUpperCase())}...
+              {avatarState.charAt(0).toUpperCase() + avatarState.slice(1).replace(/_./g, c => ' ' + c[1].toUpperCase())}...
             </p>
             {/* Hidden canvas is required for advanced mode frame captures, but is not used here */}
             <canvas ref={canvasRef} className="hidden"></canvas>
@@ -522,30 +519,29 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
               {messages.map((msg, index) => (
                 <div key={index} className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {msg.feedback ? (
-                      <div className="w-full">
-                          <FeedbackCard feedback={msg.feedback} />
-                          {showNextQuestionButton && (
-                              <div className="flex justify-center mt-4">
-                                  <button
-                                      onClick={startNewTurn}
-                                      className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded-full transition-colors"
-                                  >
-                                      Next Question
-                                  </button>
-                              </div>
-                          )}
-                      </div>
+                    <div className="w-full">
+                      <FeedbackCard feedback={msg.feedback} />
+                      {showNextQuestionButton && (
+                        <div className="flex justify-center mt-4">
+                          <button
+                            onClick={startNewTurn}
+                            className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded-full transition-colors"
+                          >
+                            Next Question
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   ) : (
-                    <div className={`max-w-xl p-3 rounded-lg ${
-                      msg.role === 'user' ? 'bg-blue-600 text-white' : 
+                    <div className={`max-w-xl p-3 rounded-lg ${msg.role === 'user' ? 'bg-blue-600 text-white' :
                       msg.role === 'model' ? 'bg-gray-700 text-gray-200' : 'bg-transparent text-center w-full text-gray-400 italic'
-                    }`}>
+                      }`}>
                       {msg.text}
                     </div>
                   )}
                 </div>
               ))}
-               {isLoading && <div className="flex justify-start"><div className="bg-gray-700 text-gray-200 p-3 rounded-lg">...</div></div>}
+              {isLoading && <div className="flex justify-start"><div className="bg-gray-700 text-gray-200 p-3 rounded-lg">...</div></div>}
               <div ref={chatEndRef} />
             </div>
             <div className="p-4 border-t border-gray-700 flex items-center gap-2">

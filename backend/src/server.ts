@@ -56,7 +56,7 @@ app.post('/api/generate-question', async (req, res) => {
   try {
     const { subject, difficulty, previousQuestions = [] } = req.body;
     console.log('📝 /api/generate-question called with:', { subject, difficulty, previousQuestionsCount: previousQuestions.length });
-    
+
     if (!subject || !difficulty) return res.status(400).json({ error: 'subject & difficulty required' });
 
     // If no Gemini key available, return a placeholder
@@ -78,10 +78,10 @@ IMPORTANT: Ask EXACTLY ONE interview question only. Do not ask multiple question
 
 CRITICAL: Return ONLY a JSON object with a single property named "question". Example: {"question": "What is ...?"}. Do not include any other text or commentary.${prevContext}`;
 
-    const response = await genai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { temperature: 0.8, maxOutputTokens: 120, responseMimeType: 'application/json' } });
+    const response = await genai.models.generateContent({ model: 'gemini-1.5-flash', contents: prompt, config: { temperature: 0.8, maxOutputTokens: 120, responseMimeType: 'application/json' } });
     const raw = (response.text || '').trim();
     console.log('Raw Gemini response:', raw.substring(0, 200) + '...');
-    
+
     try {
       const parsed = JSON.parse(raw);
       console.log('✅ Successfully generated question:', parsed.question);
@@ -100,7 +100,7 @@ CRITICAL: Return ONLY a JSON object with a single property named "question". Exa
           console.error('Failed to parse extracted JSON:', e2);
         }
       }
-      
+
       // As a final fallback, treat the raw response as the question if it contains a question mark.
       // This maintains some functionality even with malformed responses.
       if (raw.includes('?')) {
