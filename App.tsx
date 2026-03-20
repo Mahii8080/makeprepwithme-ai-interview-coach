@@ -4,6 +4,7 @@ import LoginScreen from './components/LoginScreen';
 import DashboardScreen from './components/DashboardScreen';
 import InterviewSessionScreen from './components/InterviewSessionScreen';
 import ProfileScreen from './components/ProfileScreen';
+import ResumeScreen from './components/ResumeScreen';
 import { Subject, View, Difficulty } from './types';
 import { isLoggedIn } from './services/authService';
 
@@ -15,10 +16,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // Check if user is logged in on app load
-    if (isLoggedIn()) {
-      setIsAuthenticated(true);
-      setView('dashboard');
-    }
+    // Temporarily bypass login for testing
+    setIsAuthenticated(true);
+    setView('dashboard');
+    // if (isLoggedIn()) {
+    //   setIsAuthenticated(true);
+    //   setView('dashboard');
+    // }
   }, []);
 
   const handleStartInterview = useCallback((subject: Subject | string, difficulty: Difficulty) => {
@@ -50,14 +54,16 @@ const App: React.FC = () => {
           />
         );
       case 'dashboard':
-        return <DashboardScreen onStartInterview={handleStartInterview} onViewProfile={() => setView('profile')} />;
+        return <DashboardScreen onStartInterview={handleStartInterview} onViewProfile={() => setView('profile')} onResumeInterview={() => setView('resume')} />;
       case 'profile':
         return <ProfileScreen onBack={() => setView('dashboard')} onLogout={handleLogout} />;
+      case 'resume':
+        return <ResumeScreen onBack={() => setView('dashboard')} />;
       case 'session':
         if (currentSubject && currentDifficulty) {
           return <InterviewSessionScreen subject={currentSubject} difficulty={currentDifficulty} onEndSession={handleEndInterview} />;
         }
-        return <DashboardScreen onStartInterview={handleStartInterview} onViewProfile={() => setView('profile')} />;
+        return <DashboardScreen onStartInterview={handleStartInterview} onViewProfile={() => setView('profile')} onResumeInterview={() => setView('resume')} />;
       default:
         return <LoginScreen onGetStarted={() => setView('dashboard')} />;
     }

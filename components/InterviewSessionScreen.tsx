@@ -27,6 +27,7 @@ interface InterviewSessionScreenProps {
 const speakingAvatarStates: AvatarState[] = ['speaking', 'speaking_o', 'speaking_e', 'speaking_m'];
 
 const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject, difficulty, onEndSession }) => {
+  console.log('🎬 InterviewSessionScreen mounted with:', { subject, difficulty });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [userInput, setUserInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -45,6 +46,9 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouthShapeIndex = useRef(0);
   const hasInitializedRef = useRef(false);
+  const autoStartAttemptsRef = useRef(0);
+
+  const hasModelQuestion = messages.some(m => m.role === 'model');
 
   const handleEndSessionClick = () => {
     if (sessionScores.current.length > 0) {
@@ -78,43 +82,130 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
 
   const speak = useCallback((text: string) => {
     return new Promise<void>((resolve) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.onstart = () => setAvatarState('speaking');
-      
-      // Dynamically change mouth shape during speech for a lip-sync effect
-      utterance.onboundary = (event) => {
-        if (event.name === 'word') {
-             mouthShapeIndex.current = (mouthShapeIndex.current + 1) % speakingAvatarStates.length;
-             const nextShape = speakingAvatarStates[mouthShapeIndex.current];
-             setAvatarState(nextShape);
+      const speakText = () => {
+        const utterance = new SpeechSynthesisUtterance(text);
+
+        // Smooth voice settings
+        utterance.rate = 0.95; // Clearer pace (0.1-10, default 1)
+        utterance.pitch = 1.0; // Natural pitch (0.1-2, default 1)
+        utterance.volume = 1.0; // Full volume (0-1, default 1)
+        utterance.lang = 'en-US'; // English language
+
+        // Try to use a clear English voice
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          const englishVoices = voices.filter(v => /^en(-|_)?/i.test(v.lang));
+          const preferredNames = [
+            'Google US English',
+            'Google UK English Female',
+            'Google UK English Male',
+            'Microsoft Aria',
+            'Microsoft Jenny',
+            'Microsoft Zira',
+            'Microsoft David',
+            'Samantha',
+            'Alex'
+          ];
+
+          const preferredVoice =
+            englishVoices.find(v => preferredNames.some(name => v.name.includes(name))) ||
+            englishVoices.find(v => /English/i.test(v.name)) ||
+            englishVoices[0] ||
+            voices[0];
+
+          if (preferredVoice) {
+            utterance.voice = preferredVoice;
+            if (preferredVoice.lang) {
+              utterance.lang = preferredVoice.lang;
+            }
+          }
         }
+
+        utterance.onstart = () => setAvatarState('speaking');
+
+        // Dynamically change mouth shape during speech for a lip-sync effect
+        utterance.onboundary = (event) => {
+          if (event.name === 'word') {
+               mouthShapeIndex.current = (mouthShapeIndex.current + 1) % speakingAvatarStates.length;
+               const nextShape = speakingAvatarStates[mouthShapeIndex.current];
+               setAvatarState(nextShape);
+          }
+        };
+
+        utterance.onend = () => {
+          setAvatarState('idle');
+          resolve();
+        };
+        utterance.onerror = (error) => {
+          console.error('Speech synthesis error:', error);
+          setAvatarState('idle');
+          resolve();
+        };
+        window.speechSynthesis.speak(utterance);
       };
 
-      utterance.onend = () => {
-        setAvatarState('idle');
-        resolve();
-      };
-      utterance.onerror = () => {
-        setAvatarState('idle');
-        resolve();
-      };
-      window.speechSynthesis.speak(utterance);
+      // If voices are not loaded yet, wait for them
+      if (window.speechSynthesis.getVoices().length === 0) {
+        window.speechSynthesis.onvoiceschanged = () => {
+          window.speechSynthesis.onvoiceschanged = null; // Remove listener
+          speakText();
+        };
+        // Fallback timeout in case onvoiceschanged doesn't fire
+        setTimeout(() => {
+          if (window.speechSynthesis.onvoiceschanged) {
+            window.speechSynthesis.onvoiceschanged = null;
+            speakText();
+          }
+        }, 1000);
+      } else {
+        speakText();
+      }
     });
   }, []);
   
   const startNewTurn = useCallback(async () => {
+    console.log('🔴 startNewTurn CALLED');
     setShowNextQuestionButton(false);
     setIsLoading(true);
     setAvatarState('thinking');
-    const question = await generateQuestion(subject, difficulty, previousQuestionsRef.current);
-    
-    // Track this question to avoid repetition in future calls
-    previousQuestionsRef.current.push(question);
-    
-    setMessages(prev => [...prev, { role: 'model', text: question }]);
-    setIsLoading(false);
-    await speak(question);
-    setAvatarState('listening');
+    try {
+      console.log('About to call generateQuestion with:', { subject, difficulty, prevQuestions: previousQuestionsRef.current.length });
+      const question = await generateQuestion(subject, difficulty, previousQuestionsRef.current);
+      console.log('Question generated:', question);
+      
+      if (!question || question.trim().length === 0) {
+        console.error('No question returned or question is empty');
+        setIsLoading(false);
+        setAvatarState('idle');
+        return;
+      }
+      
+      // Track this question to avoid repetition in future calls
+      previousQuestionsRef.current.push(question);
+      
+      console.log('Setting message with question:', question);
+      setMessages(prev => {
+        const newMessages = [...prev, { role: 'model', text: question }];
+        console.log('Messages updated, total:', newMessages.length);
+        return newMessages;
+      });
+      
+      setIsLoading(false);
+      console.log('About to speak question');
+      try {
+        await speak(question);
+      } catch (speakError) {
+        console.error('Error speaking:', speakError);
+      }
+      console.log('Done speaking');
+      setAvatarState('listening');
+    } catch (error) {
+      console.error('Error in startNewTurn:', error);
+      setIsLoading(false);
+      setAvatarState('idle');
+      // Show error message to user
+      setMessages(prev => [...prev, { role: 'system', text: 'Oops, something went wrong getting the next question. Give me a second and try again?' }]);
+    }
   }, [subject, difficulty, speak]);
 
   const captureFrame = (): string | null => {
@@ -186,22 +277,41 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
   }, [isInteractionDisabled, messages, subject, difficulty, speak]);
 
   useEffect(() => {
-    if (hasInitializedRef.current) return;
+    console.log('🔵 useEffect initialization hook running, hasInitializedRef.current:', hasInitializedRef.current);
+    
+    if (hasInitializedRef.current) {
+      console.log('🔵 Already initialized, skipping');
+      return;
+    }
     hasInitializedRef.current = true;
+    autoStartAttemptsRef.current = 0;
+
+    console.log('🔵 InterviewSessionScreen initializing with:', { subject, difficulty });
 
     const initialMessage: ChatMessage = {
       role: 'system',
-      text: `Starting a new ${difficulty} session for ${subject}. Let's begin.`
+      text: `Alright, let's do this! Starting a ${difficulty} interview on ${subject}. Ready whenever you are.`
     };
     setMessages([initialMessage]);
-    startNewTurn();
-    
+
     return () => {
-        // Cleanup speech synthesis on component unmount
+        console.log('🔵 useEffect cleanup');
         window.speechSynthesis.cancel();
-    }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (hasModelQuestion || isLoading) return;
+    if (autoStartAttemptsRef.current >= 2) return;
+
+    const timer = setTimeout(() => {
+      autoStartAttemptsRef.current += 1;
+      startNewTurn();
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [hasModelQuestion, isLoading, startNewTurn]);
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -331,6 +441,15 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
             }
           </div>
 
+          {!hasModelQuestion && !isLoading && (
+            <button
+              onClick={startNewTurn}
+              className="mb-4 px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-semibold transition-colors"
+            >
+              Generate Question
+            </button>
+          )}
+
           {/* Controls */}
           <div className="flex items-center justify-center">
             <button onClick={toggleListen} disabled={isInteractionDisabled || showNextQuestionButton} className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center transition-all transform hover:scale-110 ${isListening ? 'bg-red-500' : 'bg-blue-600 hover:bg-blue-500'} disabled:bg-gray-600 disabled:cursor-not-allowed`}>
@@ -390,6 +509,16 @@ const InterviewSessionScreen: React.FC<InterviewSessionScreenProps> = ({ subject
           </div>
           <div className="flex-1 flex flex-col bg-gray-800 rounded-lg overflow-hidden">
             <div className="flex-1 p-4 space-y-4 overflow-y-auto relative">
+              {!hasModelQuestion && !isLoading && (
+                <div className="flex justify-center">
+                  <button
+                    onClick={startNewTurn}
+                    className="px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-semibold transition-colors"
+                  >
+                    Generate Question
+                  </button>
+                </div>
+              )}
               {messages.map((msg, index) => (
                 <div key={index} className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {msg.feedback ? (

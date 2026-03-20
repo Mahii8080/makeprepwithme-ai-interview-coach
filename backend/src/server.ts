@@ -16,7 +16,10 @@ const port = process.env.PORT || 4000;
 // Initialize Gemini client if key provided
 let genai: any = null;
 if (process.env.GEMINI_API_KEY) {
+  console.log('✅ GEMINI_API_KEY found in environment');
   genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+} else {
+  console.warn('⚠️ GEMINI_API_KEY not found in environment - using fallback questions');
 }
 
 app.get('/api/health', (_req, res) => {
@@ -52,13 +55,17 @@ app.post('/api/sessions/:id/questions', async (req, res) => {
 app.post('/api/generate-question', async (req, res) => {
   try {
     const { subject, difficulty, previousQuestions = [] } = req.body;
+    console.log('📝 /api/generate-question called with:', { subject, difficulty, previousQuestionsCount: previousQuestions.length });
+    
     if (!subject || !difficulty) return res.status(400).json({ error: 'subject & difficulty required' });
 
     // If no Gemini key available, return a placeholder
     if (!genai) {
+      console.warn('⚠️ genai not initialized, returning mock question');
       return res.json({ question: `Mock question for ${subject} (${difficulty}) — set GEMINI_API_KEY on server to enable real generation.` });
     }
 
+    console.log('✅ genai initialized, generating real question...');
     const persona = difficulty === 'Beginner' ? 'friendly interviewer for a beginner' : difficulty === 'Intermediate' ? 'professional interviewer for an intermediate candidate' : 'senior-level interviewer assessing an expert candidate';
     let prevContext = '';
     if (previousQuestions && previousQuestions.length > 0) {
@@ -73,9 +80,11 @@ CRITICAL: Return ONLY a JSON object with a single property named "question". Exa
 
     const response = await genai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { temperature: 0.8, maxOutputTokens: 120, responseMimeType: 'application/json' } });
     const raw = (response.text || '').trim();
+    console.log('Raw Gemini response:', raw.substring(0, 200) + '...');
     
     try {
       const parsed = JSON.parse(raw);
+      console.log('✅ Successfully generated question:', parsed.question);
       return res.json(parsed);
     } catch (e) {
       // If parsing fails, attempt to find a valid JSON block within the raw response.
@@ -84,6 +93,7 @@ CRITICAL: Return ONLY a JSON object with a single property named "question". Exa
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
+          console.log('✅ Extracted and parsed question:', parsed.question);
           return res.json(parsed);
         } catch (e2) {
           // If even the extracted JSON is invalid, log the error and fall through.
@@ -95,14 +105,16 @@ CRITICAL: Return ONLY a JSON object with a single property named "question". Exa
       // This maintains some functionality even with malformed responses.
       if (raw.includes('?')) {
         const question = raw.split('?')[0].trim() + '?';
+        console.log('✅ Generated question from raw text:', question);
         return res.json({ question });
       }
 
       // If no question can be discerned, return a structured error.
+      console.error('❌ Could not parse question from response:', raw);
       return res.status(500).json({ error: 'Failed to parse a valid question from the model response.' });
     }
   } catch (err) {
-    console.error('generate error', err);
+    console.error('❌ generate error', err);
     res.status(500).json({ error: 'failed to generate' });
   }
 });

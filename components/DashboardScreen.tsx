@@ -15,6 +15,7 @@ declare global {
 interface DashboardScreenProps {
   onStartInterview: (subject: Subject | string, difficulty: Difficulty) => void;
   onViewProfile: () => void;
+  onResumeInterview: () => void;
 }
 
 interface SubjectItem {
@@ -124,7 +125,7 @@ const DifficultyModal: React.FC<{
 };
 
 
-const DashboardScreen: React.FC<DashboardScreenProps> = ({ onStartInterview, onViewProfile }) => {
+const DashboardScreen: React.FC<DashboardScreenProps> = ({ onStartInterview, onViewProfile, onResumeInterview }) => {
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [customMessages, setCustomMessages] = useState<ChatMessage[]>([]);
@@ -211,12 +212,20 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ onStartInterview, onV
               <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">Welcome Back!</h1>
               <p className="text-md sm:text-lg text-gray-400">Choose your preparation module to get started.</p>
           </div>
-          <button
-              onClick={onViewProfile}
-              className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors self-start sm:self-auto"
-          >
-              View Profile
-          </button>
+          <div className="flex gap-3">
+            <button
+                onClick={onResumeInterview}
+                className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+            >
+                📄 Resume Interview
+            </button>
+            <button
+                onClick={onViewProfile}
+                className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+            >
+                View Profile
+            </button>
+          </div>
         </header>
         <div className="w-full max-w-6xl space-y-12">
           {categories.map((category) => (
@@ -267,17 +276,9 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ onStartInterview, onV
                 type="text"
                 value={customSubject}
                 onChange={(e) => setCustomSubject(e.target.value)}
-                className="w-full sm:w-1/2 bg-gray-700 border border-gray-600 text-white rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Subject/context (e.g., Java, System Design, HR)"
               />
-              <select
-                value={customDifficulty}
-                onChange={(e) => setCustomDifficulty(e.target.value as Difficulty)}
-                className="w-full sm:w-1/4 bg-gray-700 border border-gray-600 text-white rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="Beginner">Beginner</option>
-                <option value="Advanced">Advanced</option>
-              </select>
             </div>
             <div className="flex items-center gap-3 mb-4">
               <button

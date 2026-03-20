@@ -46,7 +46,7 @@ export enum Company {
   Accenture = "Accenture",
 }
 
-export type View = "login" | "dashboard" | "session" | "profile";
+export type View = "login" | "dashboard" | "session" | "profile" | "resume";
 export type Difficulty = 'Beginner' | 'Intermediate' | 'Advanced';
 
 export interface ChatMessage {
@@ -72,4 +72,19 @@ export interface ProfileData {
   lastSessionDate: string | null;
   badges: string[];
   subjectStats: { [key in Subject]?: number };
+}
+
+export interface ResumeData {
+  skills: string[];
+  projects: string[];
+  experience: string[];
+  education: string[];
+}
+
+export interface ResumeSession {
+  resumeData: ResumeData;
+  currentQuestionIndex: number;
+  questions: string[];
+  answers: string[];
+  feedback: Feedback[];
 }
